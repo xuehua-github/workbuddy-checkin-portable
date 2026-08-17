@@ -1,0 +1,5 @@
+{
+  "base_url": "https://copilot.tencent.com",
+  "uid": "在此填入你的账号UID",
+  "token": "在此填入你的登录Token（即 Authorization: Bearer 后面的内容，不含 Bearer 前缀）"
+}
