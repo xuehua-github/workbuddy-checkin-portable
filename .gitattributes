@@ -1,0 +1,2 @@
+# 防止二进制 .exe 在 Windows runner 上被 CRLF 转换损坏
+*.exe binary
