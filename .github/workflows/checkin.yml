@@ -22,6 +22,9 @@ jobs:
         shell: pwsh
         env:
           CONFIG_JSON: ${{ secrets.CHECKIN_CONFIG }}
+          # 关键：让 PyInstaller 内嵌 Python 用 UTF-8 输出，避免任何中文报错信息触发 cp1252 UnicodeEncodeError 崩溃
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: 1
         run: |
           $dir = $env:GITHUB_WORKSPACE
           Push-Location $dir
@@ -40,34 +43,39 @@ jobs:
           $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
           [System.IO.File]::WriteAllText($path, $raw, $utf8NoBom)
 
-          # 3) 诊断：打印 exe 真正会读到的文件内容特征
+          # 3) 诊断：大小、SHA256、JSON 校验、各字段长度（与本地对比即可看出是否被剪贴板过滤替换）
           $bytes = [System.IO.File]::ReadAllBytes($path)
+          $sha = [BitConverter]::ToString(
+            [System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
+          ).Replace('-', '').ToLower()
           Write-Host "[诊断] checkin_config.json 路径 : $path"
           Write-Host "[诊断] 字节数                 : $($bytes.Length)"
-          $head = [Math]::Min(59, [Math]::Max(0, $bytes.Length - 1))
-          if ($bytes.Length -gt 0) {
-            Write-Host "[诊断] 前 60 字节             : $([System.Text.Encoding]::UTF8.GetString($bytes[0..$head]))"
-          } else {
-            Write-Host "[诊断] 前 60 字节             : <空文件>"
-          }
+          Write-Host "[诊断] SHA256                 : $sha"
           try {
             $null = $raw | ConvertFrom-Json -ErrorAction Stop
             Write-Host "[诊断] JSON 校验               : OK (合法)"
+            $obj = $raw | ConvertFrom-Json
+            Write-Host "[诊断] 字段数                 : $($obj.PSObject.Properties.Count)"
+            Write-Host "[诊断] 字段名与值长度（与本地对比：base_url=27, uid=36, token=1289）:"
+            foreach ($p in $obj.PSObject.Properties) {
+              $v = $p.Value
+              $len = if ($null -eq $v) { 0 } else { $v.ToString().Length }
+              Write-Host ("  - {0,-12} -> {1} 字符" -f $p.Name, $len)
+            }
           } catch {
             Write-Host "[诊断] JSON 校验               : FAIL - $($_.Exception.Message)"
-            Write-Error "Secret 'CHECKIN_CONFIG' 的内容不是合法 JSON（看起来是路径或被截断）。请到 Settings > Secrets and variables > Actions 编辑它，把'值'改成'本地 checkin_config.json 的全文内容'，而不是文件路径。"
+            Write-Error "Secret 'CHECKIN_CONFIG' 的内容不是合法 JSON。请到 Settings > Secrets and variables > Actions 编辑它，把'值'改成'本地 checkin_config.json 的全文内容'。"
             exit 1
           }
 
           Write-Host "[诊断] 工作区根目录文件清单:"
           Get-ChildItem -Path $dir | Select-Object Name, Length | Format-Table -AutoSize | Out-String | Write-Host
 
-          Write-Host "[诊断] 全盘搜索其他 checkin_config.json（排除刚刚写入的）:"
-          Get-ChildItem -Path $dir -Recurse -Filter checkin_config.json -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -ne $path } |
-            Select-Object FullName, Length | Format-Table -AutoSize | Out-String | Write-Host
+          # 4) 兜底：让 PowerShell 输出也走 UTF-8
+          $OutputEncoding = [System.Text.Encoding]::UTF8
+          [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-          # 4) 运行签到
+          # 5) 运行签到
           Write-Host "===== 开始运行 WorkBuddyCheckIn.exe ====="
           & ".\WorkBuddyCheckIn.exe"
           $ec = $LASTEXITCODE
