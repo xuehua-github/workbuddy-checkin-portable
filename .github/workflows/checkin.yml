@@ -45,8 +45,19 @@ jobs:
           Write-Host "[诊断] checkin_config.json 路径 : $path"
           Write-Host "[诊断] 字节数                 : $($bytes.Length)"
           $head = [Math]::Min(59, [Math]::Max(0, $bytes.Length - 1))
-          Write-Host "[诊断] 前 60 字节             : $([System.Text.Encoding]::UTF8.GetString($bytes[0..$head]))"
-          Write-Host "[诊断] JSON 校验               : $(try { $null = $raw | ConvertFrom-Json -ErrorAction Stop; 'OK (合法)' } catch { 'FAIL - ' + $_.Exception.Message })"
+          if ($bytes.Length -gt 0) {
+            Write-Host "[诊断] 前 60 字节             : $([System.Text.Encoding]::UTF8.GetString($bytes[0..$head]))"
+          } else {
+            Write-Host "[诊断] 前 60 字节             : <空文件>"
+          }
+          try {
+            $null = $raw | ConvertFrom-Json -ErrorAction Stop
+            Write-Host "[诊断] JSON 校验               : OK (合法)"
+          } catch {
+            Write-Host "[诊断] JSON 校验               : FAIL - $($_.Exception.Message)"
+            Write-Error "Secret 'CHECKIN_CONFIG' 的内容不是合法 JSON（看起来是路径或被截断）。请到 Settings > Secrets and variables > Actions 编辑它，把'值'改成'本地 checkin_config.json 的全文内容'，而不是文件路径。"
+            exit 1
+          }
 
           Write-Host "[诊断] 工作区根目录文件清单:"
           Get-ChildItem -Path $dir | Select-Object Name, Length | Format-Table -AutoSize | Out-String | Write-Host
